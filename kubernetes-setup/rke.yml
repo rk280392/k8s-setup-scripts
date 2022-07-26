@@ -1,0 +1,89 @@
+- hosts: all
+  become: true
+  tasks:
+    - name: Install packages that allow apt to be used over https
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg-agent
+          - software-properties-common
+    - name: Add an apt signing key for Docker
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+    - name: Add apt repository for stable version
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable
+        state: present
+    - name: Install docker and its dependecies
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+          - docker-ce 
+          - docker-ce-cli 
+          - containerd.io
+        notify:
+          - docker status
+    - name: Add vagrant user to docker group
+      user:
+        name: vagrant
+        group: docker
+    - name: Remove swapfile
+      mount:
+        name: "{{ item }}"
+        fstype: swap
+        state: absent
+      with_items:
+        - swap
+    - name: Disable Swap
+      command: swapoff -a
+      when: ansible_swaptotal_mb > 0
+    - name: Update sysctl settings for Kubernetes networking
+      ansible.builtin.blockinfile:
+        path: /etc/sysctl.d/kubernetes.conf
+        create: yes
+        block: |
+          net.bridge.bridge-nf-call-ip6tables = 1
+          net.bridge.bridge-nf-call-iptables = 1
+    - name: Run sysctl command
+      command:
+        cmd: sysctl --system
+    - name: Create user to maintain
+      ansible.builtin.user:
+        name: root
+        password: $6$dnDiY0BdaED8GBFx$1cGAFdnX2YUu.KjOlB3xKjPBIVLqOE2vqObK26Bhp4jwVGI5fa9B8dzh4YxCctPLquSHHRM/E0oN2mnCM7xUc0 
+        state: present
+        update_password: always
+    - name: copy ssh keys
+      authorized_key:
+        user: root 
+        key: "{{ lookup('file', '/home/rajesh/.ssh/id_rsa.pub') }}"
+        state: present
+    - name: Restart docker and containerd service
+      service:
+        name: "{{ item }}"
+        state: restarted
+      with_items:
+        - docker
+    - name: Enable password Authentication
+      command:
+        cmd: sed -i 's/^PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    - name: Enable public key authentication
+      command:
+        cmd: sed -i 's/#PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+    - name: Enable root login
+      command:
+        cmd: echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config 
+    - name: Restart sshd service
+      service:
+        name: sshd
+        state: restarted
