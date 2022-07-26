@@ -1,1 +1,5 @@
 .vagrant
+cluster.rkestate  
+cluster.yml 
+kube_config_cluster.yml
+neuvector-setup.sh
